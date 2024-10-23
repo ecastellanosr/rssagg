@@ -17,7 +17,7 @@ func configPath(segments ...string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("couldn't open home directory, %w", err)
 	}
-	segments = append([]string{home, "proyects", "go_proyects", "rssaggregator"}, segments...)
+	segments = append([]string{home, "projects", "go_projects", "rssaggregator"}, segments...)
 	return filepath.Join(segments...), nil
 }
 
