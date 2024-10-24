@@ -1,44 +1,62 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 
 	"github.com/ecastellanosr/rssagg/internal/config"
+	"github.com/ecastellanosr/rssagg/internal/database"
+	_ "github.com/lib/pq"
 )
 
 func main() {
-
+	// the CLI tool needs a minimum of 2 arguments as it need the name of the command and an argument for that command.
 	if len(os.Args) < 2 {
+		// if it does not, then return an error and stop the process.
 		fmt.Printf("not enough arguments were provided\n")
 		os.Exit(1)
 	}
+	// take the arguments of the CLI execute
 	command_name := os.Args[1]
-	argument := os.Args[2]
-
+	arguments := os.Args[2:]
+	// read your configuration file
 	current_config, err := config.Read()
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	//take the url of the database from the config file
+	dburl := current_config.Db_url
+	// open the database
+	db, err := sql.Open("postgres", dburl)
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbQueries := database.New(db)
+	//update the current state with the configuration file data
 	state_current := state{
+		db:           dbQueries,
 		config_state: &current_config,
 	}
+	//Commands
 	cmds := commands{
 		command: map[string]func(*state, command) error{},
 	}
+	//register the commands that can be used
 	cmds.register("login", handlerLogin)
-
+	cmds.register("register", register)
+	//current command that is taking place
 	command := command{
 		name:      command_name,
-		arguments: []string{argument},
+		arguments: arguments,
 	}
+	//run the command
 	err = cmds.run(&state_current, command)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	if command.name == "login" {
-		current_config.Current_user_name = state_current.config_state.Current_user_name
-		current_config.SetUser()
-	}
+	// for now it gets updated in all the commands
+	current_config.SetUser()
 }
