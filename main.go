@@ -12,13 +12,14 @@ import (
 
 func main() {
 	// the CLI tool needs a minimum of 2 arguments as it need the name of the command and an argument for that command.
-	if len(os.Args) < 2 {
+	if len(os.Args) < 1 {
 		// if it does not, then return an error and stop the process.
-		fmt.Printf("not enough arguments were provided\n")
+		fmt.Printf("no command was given\n")
 		os.Exit(1)
 	}
 	// take the arguments of the CLI execute
 	command_name := os.Args[1]
+
 	arguments := os.Args[2:]
 	// read your configuration file
 	current_config, err := config.Read()
@@ -46,6 +47,7 @@ func main() {
 	//register the commands that can be used
 	cmds.register("login", handlerLogin)
 	cmds.register("register", register)
+	cmds.register("reset", reset)
 	//current command that is taking place
 	command := command{
 		name:      command_name,

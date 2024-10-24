@@ -66,10 +66,13 @@ func register(s *state, cmd command) error {
 	if cmd.arguments == nil {
 		return fmt.Errorf("no arguments in command line")
 	}
+
 	// if it has multiple arguments, return too many arguments error
 	if len(cmd.arguments) >= 2 {
 		return fmt.Errorf("register can't take more than one user")
 	}
+
+	//get username from arguments and take the first letter
 	username := cmd.arguments[0]
 	firstletter := []byte{username[0]}
 
@@ -94,9 +97,25 @@ func register(s *state, cmd command) error {
 	if err != nil {
 		return fmt.Errorf("could not create user, %w", err)
 	}
+
 	//print the logs
 	fmt.Printf("User ID: %v\n created at: %v\n updated at: %v\n User Name: %v\n", user.ID, user.CreatedAt, user.UpdatedAt, user.Name)
 	//update current state user
 	s.config_state.Current_user_name = cmd.arguments[0]
+	return nil
+}
+func reset(s *state, cmd command) error {
+
+	// if it has multiple arguments, return too many arguments error
+	if len(cmd.arguments) >= 1 {
+		return fmt.Errorf("reset does not take any argument")
+	}
+	err := s.db.ResetTable(context.Background())
+	if err != nil {
+		return fmt.Errorf("could not remove rows,%w", err)
+	}
+
+	fmt.Printf("Reset properly executed\n")
+
 	return nil
 }
