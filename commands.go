@@ -119,3 +119,23 @@ func reset(s *state, cmd command) error {
 
 	return nil
 }
+
+func GetUsers(s *state, cmd command) error {
+
+	// if it has multiple arguments, return too many arguments error
+	if len(cmd.arguments) >= 1 {
+		return fmt.Errorf("GetUsers does not take any argument")
+	}
+	users, err := s.db.GetUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("there were no users,%w", err)
+	}
+	for _, user := range users {
+		if user == s.config_state.Current_user_name {
+			fmt.Printf("%v (current)\n", user)
+		} else {
+			fmt.Printf("%v\n", user)
+		}
+	}
+	return nil
+}

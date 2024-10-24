@@ -48,6 +48,7 @@ func main() {
 	cmds.register("login", handlerLogin)
 	cmds.register("register", register)
 	cmds.register("reset", reset)
+	cmds.register("getusers", GetUsers)
 	//current command that is taking place
 	command := command{
 		name:      command_name,
