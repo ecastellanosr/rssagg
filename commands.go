@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -32,6 +33,11 @@ func handlerLogin(s *state, cmd command) error {
 		return fmt.Errorf("handlerLogin can't take more than one user")
 	}
 	username := cmd.arguments[0]
+	firstletter := []byte{username[0]}
+
+	if bytes.ContainsAny(firstletter, "1234567890") {
+		return fmt.Errorf("username can't start with a number")
+	}
 	_, err := s.db.GetUser(context.Background(), username)
 	if err != nil {
 		// if there is no error, then the name is in the database. return error
@@ -63,6 +69,12 @@ func register(s *state, cmd command) error {
 	// if it has multiple arguments, return too many arguments error
 	if len(cmd.arguments) >= 2 {
 		return fmt.Errorf("register can't take more than one user")
+	}
+	username := cmd.arguments[0]
+	firstletter := []byte{username[0]}
+
+	if bytes.ContainsAny(firstletter, "1234567890") {
+		return fmt.Errorf("username can't start with a number")
 	}
 	//Query to see if there is an existing user with that name, if there is return an error
 	_, err := s.db.GetUser(context.Background(), cmd.arguments[0])
