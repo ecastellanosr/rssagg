@@ -49,6 +49,9 @@ func main() {
 	cmds.register("register", register)
 	cmds.register("reset", reset)
 	cmds.register("getusers", GetUsers)
+	cmds.register("agg", agg)
+	cmds.register("addfeed", addfeed)
+	cmds.register("feeds", feeds)
 	//current command that is taking place
 	command := command{
 		name:      command_name,

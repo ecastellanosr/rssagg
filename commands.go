@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ecastellanosr/rssagg/internal/config"
@@ -136,6 +138,79 @@ func GetUsers(s *state, cmd command) error {
 		} else {
 			fmt.Printf("%v\n", user)
 		}
+	}
+	return nil
+}
+func agg(s *state, cmd command) error {
+	if cmd.arguments == nil {
+		return fmt.Errorf("no arguments in command line")
+	}
+	if len(cmd.arguments) >= 2 {
+		return fmt.Errorf("agg can't take more than one link")
+	}
+	url_command := cmd.arguments[0]
+	parsedurl, err := url.Parse(url_command)
+	if err != nil {
+		// if there is no error, then the name is in the database. return error
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	path := parsedurl.Path
+	if !strings.HasSuffix(path, ".xml") {
+		return fmt.Errorf("not an XML feed")
+	}
+	fmt.Println(s.config_state.Current_user_name)
+	rssfeed, err := fetchFeed(context.Background(), url_command)
+	if err != nil {
+		return err
+	}
+	fmt.Println(rssfeed)
+	return nil
+}
+func addfeed(s *state, cmd command) error {
+	if len(cmd.arguments) < 2 {
+		return fmt.Errorf("too few arguments, addfeed needs name and url")
+	}
+	if len(cmd.arguments) > 2 {
+		return fmt.Errorf("too many arguments, addfeed only takes name and url")
+	}
+	feed_name := cmd.arguments[0]
+	feed_url := cmd.arguments[1]
+	_, err := url.Parse(feed_url)
+	if err != nil {
+		return fmt.Errorf("invalid url, %w", err)
+	}
+	user, err := s.db.GetUser(context.Background(), s.config_state.Current_user_name)
+	if err != nil {
+		return fmt.Errorf("current user does not exist")
+	}
+	user_id := user.ID
+	feedparams := database.CreatefeedParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      feed_name,
+		Url:       feed_url,
+		UserID:    user_id,
+	}
+	feed, err := s.db.Createfeed(context.Background(), feedparams)
+	if err != nil {
+		return fmt.Errorf("error while creating feed row, %w", err)
+	}
+	fmt.Println(feed)
+	return nil
+}
+
+func feeds(s *state, cmd command) error {
+	if len(cmd.arguments) > 1 {
+		return fmt.Errorf("this command does not take an argument")
+	}
+
+	feeds, err := s.db.Feeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("error while gathering the feeds, %v", err)
+	}
+	for _, feed := range feeds {
+		fmt.Printf("Feed URL:%v\n Feed Name:%v\n User: %v\n", feed.Url, feed.Name, feed.Name_2)
 	}
 	return nil
 }
