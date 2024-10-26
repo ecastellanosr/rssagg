@@ -201,7 +201,7 @@ func addfeed(s *state, cmd command) error {
 }
 
 func feeds(s *state, cmd command) error {
-	if len(cmd.arguments) > 1 {
+	if len(cmd.arguments) >= 1 {
 		return fmt.Errorf("this command does not take an argument")
 	}
 
@@ -212,5 +212,63 @@ func feeds(s *state, cmd command) error {
 	for _, feed := range feeds {
 		fmt.Printf("Feed URL:%v\n Feed Name:%v\n User: %v\n", feed.Url, feed.Name, feed.Name_2)
 	}
+	return nil
+}
+func follow(s *state, cmd command) error {
+	if len(cmd.arguments) < 1 {
+		return fmt.Errorf("no arguments were passed, follow needs a url")
+	}
+	if len(cmd.arguments) > 1 {
+		return fmt.Errorf("too many arguments, addfeed only takes a url")
+	}
+
+	feed_url := cmd.arguments[0]
+	_, err := url.Parse(feed_url)
+	if err != nil {
+		return fmt.Errorf("invalid url, %w", err)
+	}
+	user, err := s.db.GetUser(context.Background(), s.config_state.Current_user_name)
+	if err != nil {
+		return fmt.Errorf("current user does not exist")
+	}
+	user_id := user.ID
+	feed, err := s.db.GetFeed(context.Background(), feed_url)
+	if err != nil {
+		return fmt.Errorf("this url is not in the feed list, add the url to the feed")
+	}
+	feed_id := feed.ID
+	feedfollowparams := database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    user_id,
+		FeedID:    feed_id,
+	}
+	_, err = s.db.CreateFeedFollow(context.Background(), feedfollowparams)
+	if err != nil {
+		return fmt.Errorf("error while creating feedfollow row, %w", err)
+	}
+	fmt.Println(feed.Name, user.Name)
+	return nil
+}
+func following(s *state, cmd command) error {
+	if len(cmd.arguments) >= 1 {
+		return fmt.Errorf("this command does not take an argument")
+	}
+	user, err := s.db.GetUser(context.Background(), s.config_state.Current_user_name)
+	if err != nil {
+		return fmt.Errorf("current user does not exist")
+	}
+	user_id := user.ID
+
+	feedforuser, err := s.db.GetFeedFollowsforUser(context.Background(), user_id)
+	if err != nil {
+		return fmt.Errorf("error while creating feedfollowUser row, %w", err)
+	}
+	feedlist := []string{}
+	for _, row := range feedforuser {
+		feedlist = append(feedlist, row.FeedName)
+	}
+	fmt.Println(feedlist, user.Name)
 	return nil
 }
