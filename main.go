@@ -45,15 +45,16 @@ func main() {
 		command: map[string]func(*state, command) error{},
 	}
 	//register the commands that can be used
-	cmds.register("login", handlerLogin)
+	cmds.register("login", middlewareLoggedIn(loginhandler))
 	cmds.register("register", register)
 	cmds.register("reset", reset)
 	cmds.register("getusers", GetUsers)
 	cmds.register("agg", agg)
-	cmds.register("addfeed", addfeed)
+	cmds.register("addfeed", middlewareLoggedIn(addfeed))
 	cmds.register("feeds", feeds)
-	cmds.register("follow", follow)
-	cmds.register("following", following)
+	cmds.register("follow", middlewareLoggedIn(follow))
+	cmds.register("following", middlewareLoggedIn(following))
+	cmds.register("unfollow", middlewareLoggedIn(unfollow))
 	//current command that is taking place
 	command := command{
 		name:      command_name,

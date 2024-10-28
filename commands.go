@@ -27,8 +27,8 @@ type commands struct {
 	command map[string]func(*state, command) error
 }
 
-func handlerLogin(s *state, cmd command) error {
-	if cmd.arguments == nil {
+func loginhandler(s *state, cmd command, user database.User) error {
+	if len(cmd.arguments) < 1 {
 		return fmt.Errorf("no arguments in command line")
 	}
 	if len(cmd.arguments) >= 2 {
@@ -40,13 +40,12 @@ func handlerLogin(s *state, cmd command) error {
 	if bytes.ContainsAny(firstletter, "1234567890") {
 		return fmt.Errorf("username can't start with a number")
 	}
-	_, err := s.db.GetUser(context.Background(), username)
+	user, err := s.db.GetUser(context.Background(), username)
 	if err != nil {
-		// if there is no error, then the name is in the database. return error
-		return fmt.Errorf("there is no username with the name: %v", username)
+		return fmt.Errorf("current user does not exist")
 	}
-	s.config_state.Current_user_name = username
-	fmt.Println("Username has been set")
+	s.config_state.Current_user_name = user.Name
+	fmt.Printf("Current User: %v\n", user.Name)
 	return nil
 }
 
@@ -65,7 +64,7 @@ func (c *commands) run(s *state, cmd command) error {
 
 func register(s *state, cmd command) error {
 	// if register is called but no argument return error
-	if cmd.arguments == nil {
+	if len(cmd.arguments) < 1 {
 		return fmt.Errorf("no arguments in command line")
 	}
 
@@ -166,7 +165,7 @@ func agg(s *state, cmd command) error {
 	fmt.Println(rssfeed)
 	return nil
 }
-func addfeed(s *state, cmd command) error {
+func addfeed(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) < 2 {
 		return fmt.Errorf("too few arguments, addfeed needs name and url")
 	}
@@ -178,10 +177,6 @@ func addfeed(s *state, cmd command) error {
 	_, err := url.Parse(feed_url)
 	if err != nil {
 		return fmt.Errorf("invalid url, %w", err)
-	}
-	user, err := s.db.GetUser(context.Background(), s.config_state.Current_user_name)
-	if err != nil {
-		return fmt.Errorf("current user does not exist")
 	}
 	user_id := user.ID
 	feedparams := database.CreatefeedParams{
@@ -196,7 +191,18 @@ func addfeed(s *state, cmd command) error {
 	if err != nil {
 		return fmt.Errorf("error while creating feed row, %w", err)
 	}
-	fmt.Println(feed)
+	feedfollowparams := database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    user_id,
+		FeedID:    feed.ID,
+	}
+	_, err = s.db.CreateFeedFollow(context.Background(), feedfollowparams)
+	if err != nil {
+		return fmt.Errorf("error while creating feedfollow row, %w", err)
+	}
+	fmt.Printf("Feed Name: %v\nFeed URL: %v\n", feed.Name, feed.Url)
 	return nil
 }
 
@@ -214,7 +220,7 @@ func feeds(s *state, cmd command) error {
 	}
 	return nil
 }
-func follow(s *state, cmd command) error {
+func follow(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) < 1 {
 		return fmt.Errorf("no arguments were passed, follow needs a url")
 	}
@@ -227,48 +233,64 @@ func follow(s *state, cmd command) error {
 	if err != nil {
 		return fmt.Errorf("invalid url, %w", err)
 	}
-	user, err := s.db.GetUser(context.Background(), s.config_state.Current_user_name)
-	if err != nil {
-		return fmt.Errorf("current user does not exist")
-	}
-	user_id := user.ID
+
 	feed, err := s.db.GetFeed(context.Background(), feed_url)
 	if err != nil {
 		return fmt.Errorf("this url is not in the feed list, add the url to the feed")
 	}
-	feed_id := feed.ID
+
 	feedfollowparams := database.CreateFeedFollowParams{
 		ID:        uuid.New(),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-		UserID:    user_id,
-		FeedID:    feed_id,
+		UserID:    user.ID,
+		FeedID:    feed.ID,
 	}
 	_, err = s.db.CreateFeedFollow(context.Background(), feedfollowparams)
 	if err != nil {
 		return fmt.Errorf("error while creating feedfollow row, %w", err)
 	}
-	fmt.Println(feed.Name, user.Name)
+	fmt.Printf("Feed Name: %v\nUser Name: %v\n", feed.Name, user.Name)
 	return nil
 }
-func following(s *state, cmd command) error {
+func following(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) >= 1 {
 		return fmt.Errorf("this command does not take an argument")
 	}
-	user, err := s.db.GetUser(context.Background(), s.config_state.Current_user_name)
-	if err != nil {
-		return fmt.Errorf("current user does not exist")
-	}
-	user_id := user.ID
 
-	feedforuser, err := s.db.GetFeedFollowsforUser(context.Background(), user_id)
+	feedforuser, err := s.db.GetFeedFollowsforUser(context.Background(), user.ID)
 	if err != nil {
 		return fmt.Errorf("error while creating feedfollowUser row, %w", err)
 	}
 	feedlist := []string{}
-	for _, row := range feedforuser {
+	for i, row := range feedforuser {
+		if i != len(feedforuser)-1 {
+			row.FeedName += ","
+		}
 		feedlist = append(feedlist, row.FeedName)
 	}
 	fmt.Println(feedlist, user.Name)
+	return nil
+}
+func unfollow(s *state, cmd command, user database.User) error {
+	if len(cmd.arguments) < 1 {
+		return fmt.Errorf("no arguments were passed, command needs a url")
+	}
+	if len(cmd.arguments) > 1 {
+		return fmt.Errorf("too many arguments, command only takes a url")
+	}
+	feed, err := s.db.GetFeed(context.Background(), cmd.arguments[0])
+	if err != nil {
+		return fmt.Errorf("there is no feed with that URL, %w", err)
+	}
+	deleteFFParams := database.DeleteFeedFollowParams{
+		UserID: user.ID,
+		FeedID: feed.ID,
+	}
+	err = s.db.DeleteFeedFollow(context.Background(), deleteFFParams)
+	if err != nil {
+		return fmt.Errorf("error while deleting the feed follow, %w", err)
+	}
+	fmt.Printf("Feed (%v) Follow was successfully deleted\n", feed.Name)
 	return nil
 }
