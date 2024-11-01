@@ -1,5 +1,5 @@
 -- name: Feeds :many
-SELECT f.url, f.name,u.name 
+SELECT f.url, f.name,u.name, f.last_fetched_at
 FROM feeds f
 INNER JOIN users u
 ON u.id = f.user_id;

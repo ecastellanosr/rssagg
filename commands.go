@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/ecastellanosr/rssagg/internal/config"
@@ -141,30 +141,52 @@ func GetUsers(s *state, cmd command) error {
 	return nil
 }
 func agg(s *state, cmd command) error {
-	if cmd.arguments == nil {
-		return fmt.Errorf("no arguments in command line")
+	if len(cmd.arguments) < 1 {
+		return fmt.Errorf("agg command needs a time between requests argument")
 	}
-	if len(cmd.arguments) >= 2 {
-		return fmt.Errorf("agg can't take more than one link")
+	if len(cmd.arguments) > 1 {
+		return fmt.Errorf("agg can't take more than one time between requests")
 	}
-	url_command := cmd.arguments[0]
-	parsedurl, err := url.Parse(url_command)
+	timeBetweenRequests, err := time.ParseDuration(cmd.arguments[0])
 	if err != nil {
-		// if there is no error, then the name is in the database. return error
-		return fmt.Errorf("invalid URL: %w", err)
+		return fmt.Errorf("could not parse the time between duration argument %w", err)
 	}
-	path := parsedurl.Path
-	if !strings.HasSuffix(path, ".xml") {
-		return fmt.Errorf("not an XML feed")
+	fmt.Printf("collecting feeds every %v\n", timeBetweenRequests)
+	ticker := time.NewTicker(time.Duration(timeBetweenRequests))
+	for ; ; <-ticker.C {
+		fmt.Println("----------------------------------------------------------")
+		err = scrapefeeds(s)
+		if err != nil {
+			return fmt.Errorf("there was a problem scraping the feeds\n %w", err)
+		}
+		fmt.Println("----------------------------------------------------------")
 	}
-	fmt.Println(s.config_state.Current_user_name)
-	rssfeed, err := fetchFeed(context.Background(), url_command)
+}
+func scrapefeeds(s *state) error {
+	feed, err := s.db.GetNextFeedToFetch(context.Background())
 	if err != nil {
-		return err
+		return fmt.Errorf("error while fetching the next feed, %w", err)
 	}
-	fmt.Println(rssfeed)
+	feedparams := database.MarkFeedFetchedParams{
+		ID:            feed.ID,
+		LastFetchedAt: sql.NullTime{Time: time.Now(), Valid: true},
+		UpdatedAt:     time.Now(),
+	}
+	err = s.db.MarkFeedFetched(context.Background(), feedparams)
+	if err != nil {
+		return fmt.Errorf("error while marking the feed as fetched, %w", err)
+	}
+	rssfeed, err := fetchFeed(context.Background(), feed.Url)
+	if err != nil {
+		return fmt.Errorf("error while fetching the feeds items, %w", err)
+	}
+	fmt.Println(rssfeed.Channel.Title)
+	for _, item := range rssfeed.Channel.Item {
+		fmt.Println(item.Title)
+	}
 	return nil
 }
+
 func addfeed(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) < 2 {
 		return fmt.Errorf("too few arguments, addfeed needs name and url")
@@ -216,7 +238,7 @@ func feeds(s *state, cmd command) error {
 		return fmt.Errorf("error while gathering the feeds, %v", err)
 	}
 	for _, feed := range feeds {
-		fmt.Printf("Feed URL:%v\n Feed Name:%v\n User: %v\n", feed.Url, feed.Name, feed.Name_2)
+		fmt.Printf("Feed URL:%v\n Feed Name:%v\n User: %v\n last time fetched: %v\n", feed.Url, feed.Name, feed.Name_2, feed.LastFetchedAt)
 	}
 	return nil
 }
