@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/ecastellanosr/rssagg/internal/config"
@@ -181,8 +182,40 @@ func scrapefeeds(s *state) error {
 		return fmt.Errorf("error while fetching the feeds items, %w", err)
 	}
 	fmt.Println(rssfeed.Channel.Title)
+
 	for _, item := range rssfeed.Channel.Item {
-		fmt.Println(item.Title)
+		valid_des := true
+		if item.Description == "" {
+			valid_des = false
+		}
+
+		valid_pubdate := true
+		pubdate, err := time.Parse(time.RFC1123Z, item.PubDate)
+		if err != nil {
+			valid_pubdate = false
+		}
+
+		postparams := database.CreatePostParams{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Title:     item.Title,
+			Description: sql.NullString{
+				String: item.Description,
+				Valid:  valid_des,
+			},
+			Url: feed.Url,
+			PublishedAt: sql.NullTime{
+				Time:  pubdate,
+				Valid: valid_pubdate,
+			},
+			FeedID: feed.ID,
+		}
+		post, err := s.db.CreatePost(context.Background(), postparams)
+		if err != nil {
+			return fmt.Errorf("error while creating the post %w", err)
+		}
+		fmt.Printf("Post Title: %v\n Post ID: %v\n Description: %v\n Published in: %v\n", post.Title, post.ID, post.Description, post.PublishedAt)
 	}
 	return nil
 }
@@ -314,5 +347,31 @@ func unfollow(s *state, cmd command, user database.User) error {
 		return fmt.Errorf("error while deleting the feed follow, %w", err)
 	}
 	fmt.Printf("Feed (%v) Follow was successfully deleted\n", feed.Name)
+	return nil
+}
+func browse(s *state, cmd command, user database.User) error {
+	if len(cmd.arguments) < 1 {
+		return fmt.Errorf("no arguments were passed, command needs limit number")
+	}
+	if len(cmd.arguments) > 1 {
+		return fmt.Errorf("too many arguments, command only takes a limit number")
+	}
+	limit, err := strconv.Atoi(cmd.arguments[0])
+	if err != nil {
+		return fmt.Errorf("argument was not a number, %w", err)
+	}
+	limit32 := int32(limit)
+	postsparams := database.GetPostsFromUserParams{
+		UserID: user.ID,
+		Limit:  limit32,
+	}
+	posts, err := s.db.GetPostsFromUser(context.Background(), postsparams)
+	if err != nil {
+		return fmt.Errorf("there is no feed with that URL, %w", err)
+	}
+	for _, post := range posts {
+
+		fmt.Printf("TITLE:%v\n DESCRIPTION: %v\n PUBLISHED AT: %v\n", post.Description, post.Title, post.PublishedAt)
+	}
 	return nil
 }
