@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -353,25 +355,61 @@ func browse(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) < 1 {
 		return fmt.Errorf("no arguments were passed, command needs limit number")
 	}
-	if len(cmd.arguments) > 1 {
-		return fmt.Errorf("too many arguments, command only takes a limit number")
-	}
 	limit, err := strconv.Atoi(cmd.arguments[0])
 	if err != nil {
 		return fmt.Errorf("argument was not a number, %w", err)
 	}
 	limit32 := int32(limit)
-	postsparams := database.GetPostsFromUserParams{
-		UserID: user.ID,
-		Limit:  limit32,
-	}
-	posts, err := s.db.GetPostsFromUser(context.Background(), postsparams)
-	if err != nil {
-		return fmt.Errorf("there is no feed with that URL, %w", err)
-	}
-	for _, post := range posts {
 
-		fmt.Printf("TITLE:%v\n DESCRIPTION: %v\n PUBLISHED AT: %v\n", post.Description, post.Title, post.PublishedAt)
+	var posts []database.Post
+	switch {
+	case len(cmd.arguments) > 1:
+		feedtitles := cmd.arguments[0:]
+
+		postsparams := database.GetPostsFromUser1FeedParams{
+			UserID:  user.ID,
+			Column2: feedtitles,
+			Limit:   limit32,
+		}
+		posts, err = s.db.GetPostsFromUser1Feed(context.Background(), postsparams)
+		if err != nil {
+			return fmt.Errorf("there is no feed with that URL that you follow, %w", err)
+		}
+	default:
+		postsparams := database.GetPostsFromUserParams{
+			UserID: user.ID,
+			Limit:  limit32,
+		}
+		posts, err = s.db.GetPostsFromUser(context.Background(), postsparams)
+		if err != nil {
+			return fmt.Errorf("error while getting the user followed posts, %w", err)
+		}
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	i := 0
+	date := posts[i].PublishedAt.Time
+	dateonly := date.Format("2006-01-02")
+	fmt.Printf("TITLE:%v\n DESCRIPTION: %v\n PUBLISHED AT: %v\n", posts[i].Title, posts[i].Description, dateonly)
+	for scanner.Scan() {
+		input := scanner.Text()
+		if input == ">" {
+			if i == limit-1 {
+				continue
+			}
+			i++
+		}
+		if input == "<" {
+			if i == 0 {
+				continue
+			}
+			i--
+		}
+		date := posts[i].PublishedAt.Time
+		dateonly := date.Format("2006-01-02")
+		fmt.Printf("TITLE:%v\n DESCRIPTION: %v\n PUBLISHED AT: %v\n", posts[i].Title, posts[i].Description, dateonly)
+		fmt.Println(i)
+		continue
 	}
 	return nil
 }
