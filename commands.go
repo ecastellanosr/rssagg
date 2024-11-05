@@ -150,38 +150,62 @@ func agg(s *state, cmd command) error {
 	if len(cmd.arguments) > 1 {
 		return fmt.Errorf("agg can't take more than one time between requests")
 	}
-	timeBetweenRequests, err := time.ParseDuration(cmd.arguments[0])
+	TimeBetweenRequests, err := time.ParseDuration(cmd.arguments[0])
 	if err != nil {
 		return fmt.Errorf("could not parse the time between duration argument %w", err)
 	}
-	fmt.Printf("collecting feeds every %v\n", timeBetweenRequests)
-	ticker := time.NewTicker(time.Duration(timeBetweenRequests))
-	for ; ; <-ticker.C {
-		fmt.Println("----------------------------------------------------------")
-		err = scrapefeeds(s)
+	fmt.Printf("collecting feeds every %v\n", TimeBetweenRequests)
+
+	err = scrapefeeds(s, 3, TimeBetweenRequests)
+	if err != nil {
+		return fmt.Errorf("there was a problem scraping the feeds\n %w", err)
+	}
+
+	return nil
+}
+func scrapefeeds(s *state, limit int32, TimeBetweenRequests time.Duration) error {
+	start := time.Now()
+	ticker := time.NewTicker(TimeBetweenRequests)
+	nfeeds, err := s.db.GetNumberOfFeeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("error while getting the number of feeds, %w", err)
+	}
+	for i := 0; ; <-ticker.C {
+		ch := make(chan error)
+		feeds, err := s.db.GetNextFeedToFetch(context.Background(), limit)
 		if err != nil {
-			return fmt.Errorf("there was a problem scraping the feeds\n %w", err)
+			return fmt.Errorf("error while fetching the next feed, %w", err)
 		}
 		fmt.Println("----------------------------------------------------------")
+		for _, feed := range feeds {
+			go scrapefeed(feed, s, ch)
+			err = <-ch
+			if err != nil {
+				return err
+			}
+		}
+
+		fmt.Println("----------------------------------------------------------")
+		i++
+		if i*int(limit) == int(nfeeds) {
+			elapsed := time.Since(start)
+			fmt.Printf("Binomial took %s\n", elapsed)
+			break
+		}
 	}
+	return nil
 }
-func scrapefeeds(s *state) error {
-	feed, err := s.db.GetNextFeedToFetch(context.Background())
+func scrapefeed(feed database.GetNextFeedToFetchRow, s *state, ch chan error) {
+
+	err := s.db.MarkFeedFetched(context.Background(), feed.ID)
 	if err != nil {
-		return fmt.Errorf("error while fetching the next feed, %w", err)
-	}
-	feedparams := database.MarkFeedFetchedParams{
-		ID:            feed.ID,
-		LastFetchedAt: sql.NullTime{Time: time.Now(), Valid: true},
-		UpdatedAt:     time.Now(),
-	}
-	err = s.db.MarkFeedFetched(context.Background(), feedparams)
-	if err != nil {
-		return fmt.Errorf("error while marking the feed as fetched, %w", err)
+		ch <- fmt.Errorf("error while marking the feed as fetched, %w", err)
+		return
 	}
 	rssfeed, err := fetchFeed(context.Background(), feed.Url)
 	if err != nil {
-		return fmt.Errorf("error while fetching the feeds items, %w", err)
+		ch <- fmt.Errorf("error while fetching the feeds items, %w", err)
+		return
 	}
 	fmt.Println(rssfeed.Channel.Title)
 
@@ -215,11 +239,12 @@ func scrapefeeds(s *state) error {
 		}
 		post, err := s.db.CreatePost(context.Background(), postparams)
 		if err != nil {
-			return fmt.Errorf("error while creating the post %w", err)
+			ch <- fmt.Errorf("error while creating the post %w", err)
+			return
 		}
 		fmt.Printf("Post Title: %v\n Post ID: %v\n Description: %v\n Published in: %v\n", post.Title, post.ID, post.Description, post.PublishedAt)
 	}
-	return nil
+	ch <- nil
 }
 
 func addfeed(s *state, cmd command, user database.User) error {
