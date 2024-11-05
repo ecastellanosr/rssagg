@@ -147,16 +147,22 @@ func agg(s *state, cmd command) error {
 	if len(cmd.arguments) < 1 {
 		return fmt.Errorf("agg command needs a time between requests argument")
 	}
-	if len(cmd.arguments) > 1 {
-		return fmt.Errorf("agg can't take more than one time between requests")
-	}
+
 	TimeBetweenRequests, err := time.ParseDuration(cmd.arguments[0])
 	if err != nil {
 		return fmt.Errorf("could not parse the time between duration argument %w", err)
 	}
+	limit := 3
+
+	if len(cmd.arguments) > 1 {
+		limit, err = strconv.Atoi(cmd.arguments[1])
+		if err != nil {
+			return fmt.Errorf("second argument is not a number, %w", err)
+		}
+	}
 	fmt.Printf("collecting feeds every %v\n", TimeBetweenRequests)
 
-	err = scrapefeeds(s, 3, TimeBetweenRequests)
+	err = scrapefeeds(s, int32(limit), TimeBetweenRequests)
 	if err != nil {
 		return fmt.Errorf("there was a problem scraping the feeds\n %w", err)
 	}
@@ -167,6 +173,9 @@ func scrapefeeds(s *state, limit int32, TimeBetweenRequests time.Duration) error
 	start := time.Now()
 	ticker := time.NewTicker(TimeBetweenRequests)
 	nfeeds, err := s.db.GetNumberOfFeeds(context.Background())
+	if limit > int32(nfeeds) {
+		limit = int32(nfeeds)
+	}
 	if err != nil {
 		return fmt.Errorf("error while getting the number of feeds, %w", err)
 	}
@@ -187,7 +196,7 @@ func scrapefeeds(s *state, limit int32, TimeBetweenRequests time.Duration) error
 
 		fmt.Println("----------------------------------------------------------")
 		i++
-		if i*int(limit) == int(nfeeds) {
+		if i*int(limit) >= int(nfeeds) {
 			elapsed := time.Since(start)
 			fmt.Printf("Binomial took %s\n", elapsed)
 			break
