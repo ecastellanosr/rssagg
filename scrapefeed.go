@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ecastellanosr/rssagg/internal/database"
@@ -80,7 +81,7 @@ func scrapefeed(feed database.GetNextFeedToFetchRow, s *state, ch chan error) {
 				String: item.Description,
 				Valid:  valid_des,
 			},
-			Url: feed.Url,
+			Url: item.Link,
 			PublishedAt: sql.NullTime{
 				Time:  pubdate,
 				Valid: valid_pubdate,
@@ -89,6 +90,9 @@ func scrapefeed(feed database.GetNextFeedToFetchRow, s *state, ch chan error) {
 		}
 		post, err := s.db.CreatePost(context.Background(), postparams)
 		if err != nil {
+			if strings.Contains(err.Error(), "duplicate key") {
+				continue
+			}
 			ch <- fmt.Errorf("error while creating the post %w", err)
 			return
 		}
