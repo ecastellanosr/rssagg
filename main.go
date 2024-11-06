@@ -56,6 +56,7 @@ func main() {
 	cmds.register("following", middlewareLoggedIn(following))
 	cmds.register("unfollow", middlewareLoggedIn(unfollow))
 	cmds.register("browse", middlewareLoggedIn(browse))
+	cmds.register("search", search)
 	//current command that is taking place
 	command := command{
 		name:      command_name,

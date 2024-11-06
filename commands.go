@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/ecastellanosr/rssagg/internal/config"
 	"github.com/ecastellanosr/rssagg/internal/database"
 	"github.com/google/uuid"
+	"github.com/lithammer/fuzzysearch/fuzzy"
 )
 
 type state struct {
@@ -28,6 +28,19 @@ type command struct {
 
 type commands struct {
 	command map[string]func(*state, command) error
+}
+
+func (c *commands) register(name string, f func(*state, command) error) {
+	c.command[name] = f
+}
+
+func (c *commands) run(s *state, cmd command) error {
+	method := c.command[cmd.name]
+	err := method(s, cmd)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func loginhandler(s *state, cmd command, user database.User) error {
@@ -49,19 +62,6 @@ func loginhandler(s *state, cmd command, user database.User) error {
 	}
 	s.config_state.Current_user_name = user.Name
 	fmt.Printf("Current User: %v\n", user.Name)
-	return nil
-}
-
-func (c *commands) register(name string, f func(*state, command) error) {
-	c.command[name] = f
-}
-
-func (c *commands) run(s *state, cmd command) error {
-	method := c.command[cmd.name]
-	err := method(s, cmd)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -166,94 +166,7 @@ func agg(s *state, cmd command) error {
 	if err != nil {
 		return fmt.Errorf("there was a problem scraping the feeds\n %w", err)
 	}
-
 	return nil
-}
-func scrapefeeds(s *state, limit int32, TimeBetweenRequests time.Duration) error {
-	start := time.Now()
-	ticker := time.NewTicker(TimeBetweenRequests)
-	nfeeds, err := s.db.GetNumberOfFeeds(context.Background())
-	if limit > int32(nfeeds) {
-		limit = int32(nfeeds)
-	}
-	if err != nil {
-		return fmt.Errorf("error while getting the number of feeds, %w", err)
-	}
-	for i := 0; ; <-ticker.C {
-		ch := make(chan error)
-		feeds, err := s.db.GetNextFeedToFetch(context.Background(), limit)
-		if err != nil {
-			return fmt.Errorf("error while fetching the next feed, %w", err)
-		}
-		fmt.Println("----------------------------------------------------------")
-		for _, feed := range feeds {
-			go scrapefeed(feed, s, ch)
-			err = <-ch
-			if err != nil {
-				return err
-			}
-		}
-
-		fmt.Println("----------------------------------------------------------")
-		i++
-		if i*int(limit) >= int(nfeeds) {
-			elapsed := time.Since(start)
-			fmt.Printf("Binomial took %s\n", elapsed)
-			break
-		}
-	}
-	return nil
-}
-func scrapefeed(feed database.GetNextFeedToFetchRow, s *state, ch chan error) {
-
-	err := s.db.MarkFeedFetched(context.Background(), feed.ID)
-	if err != nil {
-		ch <- fmt.Errorf("error while marking the feed as fetched, %w", err)
-		return
-	}
-	rssfeed, err := fetchFeed(context.Background(), feed.Url)
-	if err != nil {
-		ch <- fmt.Errorf("error while fetching the feeds items, %w", err)
-		return
-	}
-	fmt.Println(rssfeed.Channel.Title)
-
-	for _, item := range rssfeed.Channel.Item {
-		valid_des := true
-		if item.Description == "" {
-			valid_des = false
-		}
-
-		valid_pubdate := true
-		pubdate, err := time.Parse(time.RFC1123Z, item.PubDate)
-		if err != nil {
-			valid_pubdate = false
-		}
-
-		postparams := database.CreatePostParams{
-			ID:        uuid.New(),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-			Title:     item.Title,
-			Description: sql.NullString{
-				String: item.Description,
-				Valid:  valid_des,
-			},
-			Url: feed.Url,
-			PublishedAt: sql.NullTime{
-				Time:  pubdate,
-				Valid: valid_pubdate,
-			},
-			FeedID: feed.ID,
-		}
-		post, err := s.db.CreatePost(context.Background(), postparams)
-		if err != nil {
-			ch <- fmt.Errorf("error while creating the post %w", err)
-			return
-		}
-		fmt.Printf("Post Title: %v\n Post ID: %v\n Description: %v\n Published in: %v\n", post.Title, post.ID, post.Description, post.PublishedAt)
-	}
-	ch <- nil
 }
 
 func addfeed(s *state, cmd command, user database.User) error {
@@ -307,7 +220,7 @@ func feeds(s *state, cmd command) error {
 		return fmt.Errorf("error while gathering the feeds, %v", err)
 	}
 	for _, feed := range feeds {
-		fmt.Printf("Feed URL:%v\n Feed Name:%v\n User: %v\n last time fetched: %v\n", feed.Url, feed.Name, feed.Name_2, feed.LastFetchedAt)
+		fmt.Printf("Feed URL:%v\n Feed Name:%v\n User: %v\n last time fetched: %v\n", feed.Url, feed.FeedName, feed.Username, feed.LastFetchedAt)
 	}
 	return nil
 }
@@ -425,25 +338,60 @@ func browse(s *state, cmd command, user database.User) error {
 	date := posts[i].PublishedAt.Time
 	dateonly := date.Format("2006-01-02")
 	fmt.Printf("TITLE:%v\n DESCRIPTION: %v\n PUBLISHED AT: %v\n", posts[i].Title, posts[i].Description, dateonly)
+Loop:
 	for scanner.Scan() {
 		input := scanner.Text()
-		if input == ">" {
+		switch input {
+		case ">":
 			if i == limit-1 {
 				continue
 			}
 			i++
-		}
-		if input == "<" {
+		case "<":
 			if i == 0 {
 				continue
 			}
 			i--
+		case "exit":
+			break Loop
 		}
 		date := posts[i].PublishedAt.Time
 		dateonly := date.Format("2006-01-02")
 		fmt.Printf("TITLE:%v\n DESCRIPTION: %v\n PUBLISHED AT: %v\n", posts[i].Title, posts[i].Description, dateonly)
 		fmt.Println(i)
 		continue
+	}
+	return nil
+}
+
+func search(s *state, cmd command) error {
+	if len(cmd.arguments) < 1 {
+		return fmt.Errorf("no arguments were passed, command needs a feed name")
+	}
+	if len(cmd.arguments) > 1 {
+		return fmt.Errorf("the name cant be more than one word")
+	}
+	fuzzyword := cmd.arguments[0]
+	feeds, err := s.db.Feeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("error while getting the user followed posts, %w", err)
+	}
+	var feedsnames []string
+	for _, feed := range feeds {
+		feedsnames = append(feedsnames, feed.FeedName)
+	}
+	aparentfeeds := fuzzy.Find(fuzzyword, feedsnames)
+	fmt.Printf("List of feeds from %v\n", fuzzyword)
+	if len(aparentfeeds) == 0 {
+		fmt.Printf("there are no feeds that have \"%v\"\n", fuzzyword)
+		return nil
+	}
+	for _, aparentfeed := range aparentfeeds {
+		feed, err := s.db.GetFeedbyName(context.Background(), aparentfeed)
+		if err != nil {
+			return fmt.Errorf("error while getting feed, %w", err)
+		}
+		fmt.Printf("Feed Name: %v - Feed ID:%v - Feed Url: %v - Feed Created at: %v\n", feed.Name, feed.ID, feed.Url, feed.CreatedAt)
 	}
 	return nil
 }
